@@ -1,0 +1,5 @@
+python-jobspy
+openai
+pandas
+PyYAML
+rich
