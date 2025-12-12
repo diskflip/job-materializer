@@ -1,0 +1,1 @@
+## Use tool like PdfToText to add text version of resume in /config
