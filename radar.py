@@ -69,7 +69,6 @@ def load_config() -> dict:
 
 
 def init_client(api_key: str) -> Optional[OpenAI]:
-    """Initialize OpenRouter client"""
     if not api_key:
         return None
     
@@ -90,7 +89,6 @@ def score_job_with_ai(
     resume: str,
     config: dict
 ) -> dict:
-    """Score a job using Grok with structured output"""
     
     goals = config.get("goals", "")
     background = config.get("background", "")
@@ -269,10 +267,6 @@ def fetch_jobs_from_source(source: str, search_term: str, location: str, results
 
 
 def render_job_card(job: Job, ai_reasoning: str = "", match_score: int = 0):
-    """
-    Render a job card with AI reasoning and match score.
-    Colors based on score - title and border match.
-    """
     if match_score >= 80:
         color = "magenta"
     elif match_score >= 60:
@@ -381,7 +375,7 @@ def main():
     config = load_config()
     min_score = config.get("min_score", 0)
     
-    api_key = "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"
+    api_key = ""
     
     if api_key == "YOUR_API_KEY_HERE":
         api_key = os.environ.get("OPENROUTER_API_KEY", "")
