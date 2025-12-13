@@ -71,30 +71,28 @@ def score_job_with_ai(client: OpenAI, job: Job, resume: str, config: dict) -> di
     pay = config.get("pay", "")
     location = config.get("location", "")
     evaluation_factors = config.get("evaluation_factors", "")
+    current_time = datetime.now().strftime("%A %I:%M %p")
     
-    prompt = f"""Score this job 0.0-1.0 for me and explain why.
+    prompt = f"""Score this job 0.0-1.0.
 
 SCORING:
-- 0.0-0.2: Skip, wrong field
-- 0.2-0.4: Stretch, might try
-- 0.4-0.6: Solid chance
-- 0.6-0.8: Strong fit
-- 0.8-1.0: RARE - perfect match
+0.0-0.2: Skip
+0.2-0.4: Stretch
+0.4-0.6: Solid
+0.6-0.8: Strong
+0.8-1.0: RARE
 
-Be honest. Most jobs are 0.3-0.5. Only 0.8+ for genuinely great fits.
+CURRENT TIME: {current_time}
+Late night/weekend posts by big US companies = ghost jobs.
 
-MY RESUME:
+RESUME:
 {resume}
 
 GOALS: {goals}
-
 SITUATION: {background}
-
 PAY: {pay}
-
 LOCATION: {location}
-
-CONSIDER: {evaluation_factors}
+FACTORS: {evaluation_factors}
 
 JOB:
 {job.title} at {job.company}
@@ -103,7 +101,12 @@ Location: {job.location}
 
 Return JSON:
 - score: 0.0-1.0
-- reasoning: One helpful sentence. Be specific about why it fits or doesn't.
+- reasoning: LENGTH DEPENDS ON SCORE:
+  * Under 0.4: One short sentence max (e.g. "Senior role, needs 5+ years")
+  * 0.4-0.6: Two short lines with +/- (e.g. "+ skill match\\n- exp gap")
+  * 0.6-0.8: 2-3 lines with +/- 
+  * 0.8+: 3-4 lines with +/-
+  Keep each line under 60 chars.
 - should_apply: true/false"""
 
     try:
@@ -201,7 +204,7 @@ def fetch_jobs_from_source(source: str, search_term: str, location: str, results
             city = safe_str(row.get('city'))
             state = safe_str(row.get('state'))
             loc_parts = [p for p in [city, state] if p]
-            location_str = ", ".join(loc_parts) if loc_parts else "Remote/Unknown"
+            location_str = ", ".join(loc_parts) if loc_parts else "Unknown"
             company = safe_str(row.get('company')) or "Unknown"
             description = safe_str(row.get('description'))
             jid = stable_job_id(title, company)
@@ -225,38 +228,66 @@ def fetch_jobs_from_source(source: str, search_term: str, location: str, results
     return jobs
 
 
+def get_site_name(url: str) -> str:
+    if "indeed.com" in url:
+        return "Indeed"
+    if "linkedin.com" in url:
+        return "LinkedIn"
+    if "ziprecruiter.com" in url:
+        return "ZipRecruiter"
+    if "glassdoor.com" in url:
+        return "Glassdoor"
+    if "google.com" in url:
+        return "Google"
+    return "Link"
+
+
 def render_job_card(job: Job, ai_reasoning: str = "", match_score: int = 0):
+    from rich.box import ROUNDED
+    
     if match_score >= 80:
-        color = "magenta"
+        color = "bold magenta"
     elif match_score >= 60:
-        color = "yellow"
+        color = "bold yellow"
     elif match_score >= 40:
         color = "blue"
-    elif match_score >= 20:
-        color = "white"
     else:
-        color = "dim"
+        color = "white"
     
-    company = job.company if job.company and job.company != 'Unknown' else "Unknown Company"
+    company = job.company if job.company and job.company != 'Unknown' else "Unknown"
     location = job.location if job.location else "Unknown"
+    site_name = get_site_name(job.link)
     
-    header = Text()
-    if match_score >= 70:
-        header.append("⚡ ", style="bold yellow")
-    header.append(company, style=f"bold {color}")
-    header.append(" | ", style="dim")
-    header.append(job.title, style=f"bold {color}")
-    header.append(" | ", style="dim")
-    header.append(location, style="italic")
+    max_width = min(76, console.width - 4)
+    header_base = f"{company} | {job.title} | {location} | {site_name}"
+    
+    if len(header_base) > max_width:
+        available = max_width - len(f"{company} |  | {location} | {site_name}") - 3
+        title = job.title[:available] + "..." if available > 0 else job.title[:20] + "..."
+    else:
+        title = job.title
     
     body = Text()
-    body.append_text(header)
+    body.append(company, style=f"bold {color}")
+    body.append(" | ", style="dim")
+    body.append(title, style=f"bold {color}")
+    body.append(" | ", style="dim")
+    body.append(location, style=color)
+    body.append(" | ", style="dim")
+    body.append(site_name, style=f"underline {color} link {job.link}")
+    
     if ai_reasoning:
         body.append("\n")
-        body.append("· ", style="dim")
-        body.append(ai_reasoning, style="dim")
-    body.append("\n")
-    body.append(job.link, style="underline blue")
+        for line in ai_reasoning.split("\n"):
+            line = line.strip()
+            if line.startswith("+"):
+                body.append("+", style=f"bold {color}")
+                body.append(line[1:] + "\n", style="white")
+            elif line.startswith("-"):
+                body.append("-", style=f"bold {color}")
+                body.append(line[1:] + "\n", style="white")
+            elif line:
+                body.append(line + "\n", style="white")
     
     title_text = f"{match_score}%" if match_score > 0 else None
     panel = Panel(
@@ -264,6 +295,7 @@ def render_job_card(job: Job, ai_reasoning: str = "", match_score: int = 0):
         title=title_text,
         title_align="right",
         border_style=color,
+        box=ROUNDED,
         padding=(0, 1),
         width=min(80, console.width),
     )
@@ -309,7 +341,7 @@ def main():
         else:
             client = init_client(api_key)
             if client:
-                console.print("[green]✓ AI scoring enabled[/green]\n")
+                console.print("[green]AI scoring enabled[/green]\n")
 
     if args.indeed_only:
         sources = [{"name": "indeed", "interval": args.indeed_interval}]
@@ -334,7 +366,7 @@ def main():
     last_poll = state.get("last_poll", {})
     first_run = len(seen_list) == 0
 
-    console.print("[bold]⚔ Job Radar[/bold]")
+    console.print("[bold]Job Radar[/bold]")
     console.print(f"Search: {search_term or '(all jobs)'}")
     console.print(f"Location: {args.location}")
     if min_score > 0:
@@ -358,7 +390,7 @@ def main():
                 
                 ts = datetime.now().strftime("%I:%M %p").lstrip("0")
                 print(f"\r{' ' * 80}\r", end="")
-                print(f"{ts} · Polling {source_name}...", end="\r", flush=True)
+                print(f"{ts} Polling {source_name}...", end="\r", flush=True)
                 
                 jobs = fetch_jobs_from_source(
                     source=source_name,
@@ -379,7 +411,7 @@ def main():
                 if total_pending == 0:
                     ts = datetime.now().strftime("%I:%M %p").lstrip("0")
                     print(f"\r{' ' * 80}\r", end="")
-                    print(f"{ts} · {source_name}: no new jobs", end="\r", flush=True)
+                    print(f"{ts} {source_name}: no new jobs", end="\r", flush=True)
                 
                 for i, job in enumerate(pending_jobs):
                     seen.add(job.jid)
@@ -392,7 +424,7 @@ def main():
                         remaining = total_pending - i
                         ts = datetime.now().strftime("%I:%M %p").lstrip("0")
                         print(f"\r{' ' * 80}\r", end="")
-                        print(f"{ts} · Scoring ({remaining} pending): {job.title[:40]}...", end="\r", flush=True)
+                        print(f"{ts} Scoring ({remaining} pending): {job.title[:40]}...", end="\r", flush=True)
                         
                         job_score = score_job_with_ai(client, job, resume, config)
                         score = job_score["score"]
