@@ -8,6 +8,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional, List
 from datetime import datetime
+from dotenv import load_dotenv
+
+load_dotenv()
 
 import yaml
 import pandas as pd
@@ -276,9 +279,9 @@ def main():
     parser.add_argument("--initial-limit", type=int, default=20)
     parser.add_argument("--hours-old", type=int, default=24)
     parser.add_argument("--reset-state", action="store_true")
-    parser.add_argument("--indeed-interval", type=int, default=5)
-    parser.add_argument("--zip-interval", type=int, default=10)
-    parser.add_argument("--google-interval", type=int, default=15)
+    parser.add_argument("--indeed-interval", type=int, default=3)
+    parser.add_argument("--zip-interval", type=int, default=5)
+    parser.add_argument("--google-interval", type=int, default=8)
     parser.add_argument("--results", type=int, default=25)
     parser.add_argument("--indeed-only", action="store_true")
     parser.add_argument("--with-linkedin", action="store_true")
@@ -295,7 +298,7 @@ def main():
     config = load_config()
     min_score = config.get("min_score", 0)
     
-    api_key = "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"
+    api_key = os.environ.get("OPENROUTER_API_KEY", "")
     client = None
     
     if not args.no_ai:
@@ -353,6 +356,10 @@ def main():
                 if now - last < interval and not first_run:
                     continue
                 
+                ts = datetime.now().strftime("%I:%M %p").lstrip("0")
+                print(f"\r{' ' * 80}\r", end="")
+                print(f"{ts} · Polling {source_name}...", end="\r", flush=True)
+                
                 jobs = fetch_jobs_from_source(
                     source=source_name,
                     search_term=search_term,
@@ -368,6 +375,11 @@ def main():
                 
                 pending_jobs = [job for job in jobs if job.jid not in seen]
                 total_pending = len(pending_jobs)
+                
+                if total_pending == 0:
+                    ts = datetime.now().strftime("%I:%M %p").lstrip("0")
+                    print(f"\r{' ' * 80}\r", end="")
+                    print(f"{ts} · {source_name}: no new jobs", end="\r", flush=True)
                 
                 for i, job in enumerate(pending_jobs):
                     seen.add(job.jid)
