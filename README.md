@@ -1,4 +1,4 @@
-# Job Materializer
+# Job Materializer - wip
 
 A small agentic terminal tool that uses llm models to rank, display, and save potential job postings based on a mix of your resume and personal needs.
 
