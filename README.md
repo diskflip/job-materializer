@@ -31,18 +31,14 @@ pip install -r requirements.txt
 ## Configuration
 
 This script reads from ./config/:
-
-config/resume.txt (plain text resume)
-
-config/config.yaml (scoring preferences) 
-
-config/resume.txt
+- config/resume.txt (plain text resume)
+- config/config.yaml (scoring preferences) 
+- config/resume.txt
 
 Put your resume in plain text. If it’s missing, the script still runs, but AI scoring will be disabled. 
 
-config/config.yaml
-
-Example:
+#### config/config.yaml
+#### Example:
 
 min_score: 60
 
