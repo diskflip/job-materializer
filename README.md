@@ -64,27 +64,28 @@ min_score is in percent (0–100). If set, jobs scoring below this are skipped (
 
 ```
 Set your API key:
-
+```
 export OPENROUTER_API_KEY=""
-
+```
 
 ### Usage
 
 #### Basic:
-
+```
 python radar.py --search "software engineer" --location "USA"
-
+```
 
 #### Run without AI scoring:
-
+```
 python radar.py --search "data engineer" --location "USA" --no-ai
-
+```
 
 #### Indeed-only mode:
-
+```
 python radar.py --search "backend engineer" --indeed-only
-
+```
 
 #### Include LinkedIn:
-
+```
 python radar.py --search "platform engineer" --with-linkedin
+```
