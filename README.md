@@ -40,6 +40,8 @@ Put your resume in plain text. If it’s missing, the script still runs, but AI 
 #### config/config.yaml
 #### Example:
 
+```
+
 min_score: 60
 
 goals: >
@@ -60,7 +62,7 @@ evaluation_factors: >
 
 min_score is in percent (0–100). If set, jobs scoring below this are skipped (when AI scoring is enabled). 
 
-
+```
 Set your API key:
 
 export OPENROUTER_API_KEY=""
