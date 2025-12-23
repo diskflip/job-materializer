@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import time
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional, List
@@ -39,13 +40,11 @@ class Job:
     company: str
     location: str
 
-
 def load_resume() -> str:
     if not RESUME_PATH.exists():
         console.print(f"[yellow]No resume found at {RESUME_PATH}[/yellow]")
         return ""
     return RESUME_PATH.read_text(encoding="utf-8")
-
 
 def load_config() -> dict:
     if not CONFIG_PATH.exists():
@@ -53,7 +52,6 @@ def load_config() -> dict:
         return {"min_score": 0}
     with open(CONFIG_PATH, "r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {"min_score": 0}
-
 
 def init_client(api_key: str) -> Optional[OpenAI]:
     if not api_key:
@@ -64,7 +62,6 @@ def init_client(api_key: str) -> Optional[OpenAI]:
         console.print(f"[red]Failed to initialize OpenRouter:[/red] {e}")
         return None
 
-
 def _to_score_percent(score) -> int:
     try:
         val = float(score)
@@ -74,7 +71,6 @@ def _to_score_percent(score) -> int:
         val = val * 100.0
     return max(0, min(100, int(round(val))))
 
-
 def score_job_with_ai(client: OpenAI, job: Job, resume: str, config: dict) -> dict:
     goals = config.get("goals", "")
     background = config.get("background", "")
@@ -82,7 +78,7 @@ def score_job_with_ai(client: OpenAI, job: Job, resume: str, config: dict) -> di
     location = config.get("location", "")
     evaluation_factors = config.get("evaluation_factors", "")
     current_time = datetime.now().strftime("%A %I:%M %p")
-    
+
     prompt = f"""Score this job 0.0-1.0.
 
 SCORING:
@@ -150,11 +146,9 @@ Return JSON:
         console.print(f"[dim]AI scoring failed: {e}[/dim]")
         return {"score": 0, "reasoning": "Scoring unavailable", "should_apply": False}
 
-
 def stable_job_id(title: str, company: str) -> str:
     base = (title.strip().lower() + "||" + company.strip().lower()).encode("utf-8", errors="ignore")
     return hashlib.sha256(base).hexdigest()
-
 
 def load_state(path: str) -> Dict:
     if os.path.exists(path):
@@ -172,7 +166,6 @@ def load_state(path: str) -> Dict:
             pass
     return {"seen": [], "last_poll": {}, "saved": []}
 
-
 def save_state(path: str, seen: List[str], last_poll: Dict, saved: List[str], max_seen: int):
     if len(seen) > max_seen:
         seen = seen[-max_seen:]
@@ -181,7 +174,6 @@ def save_state(path: str, seen: List[str], last_poll: Dict, saved: List[str], ma
         json.dump({"seen": seen, "last_poll": last_poll, "saved": saved}, f, ensure_ascii=False, indent=2)
     os.replace(tmp, path)
 
-
 def safe_str(val) -> str:
     if val is None:
         return ""
@@ -189,6 +181,26 @@ def safe_str(val) -> str:
         return ""
     return str(val).strip()
 
+def _row_location(row) -> str:
+    loc_val = row.get("location")
+    location_str = ""
+    if isinstance(loc_val, dict):
+        c = safe_str(loc_val.get("city"))
+        s = safe_str(loc_val.get("state"))
+        country = safe_str(loc_val.get("country"))
+        parts = [p for p in [c, s, country] if p]
+        location_str = ", ".join(parts) if parts else ""
+    else:
+        location_str = safe_str(loc_val)
+
+    if location_str:
+        return location_str
+
+    city = safe_str(row.get("city"))
+    state = safe_str(row.get("state"))
+    country = safe_str(row.get("country"))
+    parts = [p for p in [city, state, country] if p]
+    return ", ".join(parts) if parts else "Unknown"
 
 def fetch_jobs_from_source(source: str, search_term: str, location: str, results_wanted: int, hours_old: int, proxy: str = None) -> List[Job]:
     jobs = []
@@ -209,17 +221,17 @@ def fetch_jobs_from_source(source: str, search_term: str, location: str, results
             params["country_indeed"] = "USA"
         if source == "linkedin":
             params["linkedin_fetch_description"] = True
-        
+
         df = scrape_jobs(**params)
         if df is None or df.empty:
             return jobs
-        
+
         for _, row in df.iterrows():
             job_url = safe_str(row.get("job_url"))
             title = safe_str(row.get("title"))
             if not job_url or not title:
                 continue
-            
+
             date_posted = row.get("date_posted")
             published_dt = None
             published_str = ""
@@ -232,18 +244,15 @@ def fetch_jobs_from_source(source: str, search_term: str, location: str, results
                         published_str = str(date_posted)
                 except Exception:
                     published_str = str(date_posted) if date_posted else ""
-            
-            city = safe_str(row.get("city"))
-            state = safe_str(row.get("state"))
-            loc_parts = [p for p in [city, state] if p]
-            location_str = ", ".join(loc_parts) if loc_parts else "Unknown"
+
+            location_str = _row_location(row)
             company = safe_str(row.get("company")) or "Unknown"
             description = safe_str(row.get("description"))
             jid = stable_job_id(title, company)
-            
+
             if any(j.jid == jid for j in jobs):
                 continue
-            
+
             jobs.append(
                 Job(
                     jid=jid,
@@ -261,7 +270,6 @@ def fetch_jobs_from_source(source: str, search_term: str, location: str, results
         console.print(f"[red]Error fetching from {source}:[/red] {ex}")
     return jobs
 
-
 def get_site_name(url: str) -> str:
     if "indeed.com" in url:
         return "Indeed"
@@ -275,10 +283,9 @@ def get_site_name(url: str) -> str:
         return "Google"
     return "Link"
 
-
 def render_job_card(job: Job, ai_reasoning: str = "", match_score: int = 0):
     from rich.box import ROUNDED
-    
+
     if match_score >= 80:
         color = "magenta"
     elif match_score >= 60:
@@ -287,20 +294,20 @@ def render_job_card(job: Job, ai_reasoning: str = "", match_score: int = 0):
         color = "blue"
     else:
         color = "white"
-    
+
     company = job.company if job.company and job.company != "Unknown" else "Unknown"
     location = job.location if job.location else "Unknown"
     site_name = get_site_name(job.link)
-    
+
     max_width = min(76, console.width - 4)
     header_base = f"{company} | {job.title} | {location} | {site_name}"
-    
+
     if len(header_base) > max_width:
         available = max_width - len(f"{company} |  | {location} | {site_name}") - 3
         title = job.title[:available] + "..." if available > 0 else job.title[:20] + "..."
     else:
         title = job.title
-    
+
     body = Text()
     body.append(company, style=f"bold {color}")
     body.append(" | ", style="dim")
@@ -309,7 +316,7 @@ def render_job_card(job: Job, ai_reasoning: str = "", match_score: int = 0):
     body.append(location, style=color)
     body.append(" | ", style="dim")
     body.append(site_name, style=f"underline {color} link {job.link}")
-    
+
     if ai_reasoning:
         body.append("\n")
         for line in ai_reasoning.split("\n"):
@@ -322,7 +329,7 @@ def render_job_card(job: Job, ai_reasoning: str = "", match_score: int = 0):
                 body.append(line[1:] + "\n", style="white")
             elif line:
                 body.append(line + "\n", style="white")
-    
+
     title_text = f"{match_score}%" if match_score > 0 else None
     panel = Panel(
         body,
@@ -335,18 +342,17 @@ def render_job_card(job: Job, ai_reasoning: str = "", match_score: int = 0):
     )
     console.print(panel)
 
-
 def hide_cursor():
     print("\033[?25l", end="", flush=True)
-
 
 def show_cursor():
     print("\033[?25h", end="", flush=True)
 
-
-def _clear_line():
-    print(f"\r{' ' * 160}\r", end="")
-
+def _status_write(s: str):
+    width = shutil.get_terminal_size((120, 20)).columns
+    if len(s) >= width:
+        s = s[: max(0, width - 1)]
+    print("\033[2K\r" + s, end="\r", flush=True)
 
 def _status_counts(found: Dict[str, int], saved: int) -> str:
     m = f"\033[1;35m{found['magenta']:3d}\033[0m"
@@ -355,7 +361,6 @@ def _status_counts(found: Dict[str, int], saved: int) -> str:
     w = f"\033[37m{found['white']:3d}\033[0m"
     s = f"\033[1m{saved:3d}\033[0m"
     return f"found: {m} | {y} | {b} | {w}  saved: {s}"
-
 
 def append_saved_job(path: Path, job: Job, score: int, reasoning: str):
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -379,7 +384,6 @@ def append_saved_job(path: Path, job: Job, score: int, reasoning: str):
                     f.write(f"{line}\n")
         f.write("\n")
 
-
 def main():
     parser = argparse.ArgumentParser(description="Job Radar")
     parser.add_argument("--search", type=str, default="")
@@ -399,18 +403,18 @@ def main():
     parser.add_argument("--no-ai", action="store_true")
     parser.add_argument("--dev", action="store_true")
     args = parser.parse_args()
-    
+
     search_term = args.search
     if args.dev and not search_term:
         search_term = "software engineer"
-    
+
     resume = load_resume()
     config = load_config()
     min_score = config.get("min_score", 0)
-    
+
     api_key = os.environ.get("OPENROUTER_API_KEY", "")
     client = None
-    
+
     if not args.no_ai:
         if not api_key:
             console.print("[yellow]No API key - AI scoring disabled[/yellow]\n")
@@ -420,7 +424,7 @@ def main():
             client = init_client(api_key)
             if client:
                 console.print("[green]AI scoring enabled[/green]\n")
-    
+
     if args.indeed_only:
         sources = [{"name": "indeed", "interval": args.indeed_interval}]
     else:
@@ -431,13 +435,13 @@ def main():
         ]
         if args.with_linkedin:
             sources.append({"name": "linkedin", "interval": 30})
-    
+
     if args.reset_state and os.path.exists(args.state):
         try:
             os.remove(args.state)
         except Exception:
             pass
-    
+
     state = load_state(args.state)
     seen_list = state.get("seen", [])
     seen = set(seen_list)
@@ -445,10 +449,10 @@ def main():
     saved_list = state.get("saved", [])
     saved_set = set(saved_list)
     first_run = len(seen_list) == 0
-    
+
     found = {"magenta": 0, "yellow": 0, "blue": 0, "white": 0}
     saved = 0
-    
+
     console.print("[bold]Job Materializer[/bold]")
     console.print(f"Search: {search_term or '(all jobs)'}")
     console.print(f"Location: {args.location}")
@@ -459,11 +463,11 @@ def main():
     if first_run:
         console.print("[dim]Loading recent jobs...[/dim]\n")
     console.print("[dim]Ctrl+C to stop[/dim]\n")
-    
+
     dots_cycle = ["   ", ".  ", ".. ", "..."]
     dots_i = 0
     last_queue = 0
-    
+
     try:
         hide_cursor()
         while True:
@@ -472,16 +476,15 @@ def main():
                 source_name = source_cfg["name"]
                 interval = source_cfg["interval"]
                 last = last_poll.get(source_name, 0)
-                
+
                 if now - last < interval and not first_run:
                     continue
-                
+
                 ts = datetime.now().strftime("%I:%M %p").lstrip("0")
                 dots = dots_cycle[dots_i]
                 dots_i = (dots_i + 1) % len(dots_cycle)
-                _clear_line()
-                print(f"{ts} Polling{dots}  In queue: {last_queue:4d}  {_status_counts(found, saved)}", end="\r", flush=True)
-                
+                _status_write(f"{ts} Polling{dots}  In queue: {last_queue:4d}  {_status_counts(found, saved)}")
+
                 jobs = fetch_jobs_from_source(
                     source=source_name,
                     search_term=search_term,
@@ -491,40 +494,37 @@ def main():
                     proxy=args.proxy,
                 )
                 last_poll[source_name] = time.time()
-                
+
                 if first_run:
                     jobs = jobs[:args.initial_limit]
-                
+
                 pending_jobs = [job for job in jobs if job.jid not in seen]
                 total_pending = len(pending_jobs)
                 last_queue = total_pending
-                
+
                 ts = datetime.now().strftime("%I:%M %p").lstrip("0")
                 dots = dots_cycle[dots_i]
-                _clear_line()
-                print(f"{ts} Polling{dots}  In queue: {last_queue:4d}  {_status_counts(found, saved)}", end="\r", flush=True)
-                
+                _status_write(f"{ts} Polling{dots}  In queue: {last_queue:4d}  {_status_counts(found, saved)}")
+
                 for i, job in enumerate(pending_jobs):
                     seen.add(job.jid)
                     seen_list.append(job.jid)
-                    
+
                     score = 0
                     reasoning = ""
-                    
+
                     if client and resume:
                         remaining = total_pending - i
                         ts = datetime.now().strftime("%I:%M %p").lstrip("0")
-                        _clear_line()
-                        print(f"{ts} Scoring ({remaining} pending): {job.title[:40]}...  {_status_counts(found, saved)}", end="\r", flush=True)
-                        
+                        _status_write(f"{ts} Scoring ({remaining} pending):  {_status_counts(found, saved)}")
+
                         job_score = score_job_with_ai(client, job, resume, config)
                         score = job_score.get("score", 0)
                         reasoning = job_score.get("reasoning", "")
-                        _clear_line()
-                        
+
                         if score < min_score:
                             continue
-                    
+
                     if score >= 80:
                         found["magenta"] += 1
                     elif score >= 60:
@@ -533,30 +533,30 @@ def main():
                         found["blue"] += 1
                     else:
                         found["white"] += 1
-                    
+
                     render_job_card(job, ai_reasoning=reasoning, match_score=score)
-                    
+
                     if score >= 60 and job.jid not in saved_set:
                         append_saved_job(SAVED_FILE, job, score, reasoning)
                         saved_set.add(job.jid)
                         saved_list.append(job.jid)
                         saved += 1
-                
+
                 save_state(args.state, seen_list, last_poll, saved_list, args.max_seen)
-            
+
             if first_run:
                 first_run = False
-            
+
             time.sleep(0.5)
-    
+
     except KeyboardInterrupt:
+        _status_write("")
         show_cursor()
         console.print("\n[dim]Stopped[/dim]")
         save_state(args.state, seen_list, last_poll, saved_list, args.max_seen)
-    
+
     finally:
         show_cursor()
-
 
 if __name__ == "__main__":
     main()
