@@ -4,3 +4,5 @@ config/config.yaml
 config/resume.txt
 .radar_state.json
 .env
+saved.txt
+applied.txt
